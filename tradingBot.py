@@ -3,10 +3,14 @@ from lumibot.backtesting import YahooDataBacktesting #Framework for trading
 from lumibot.strategies.strategy import Strategy #Strategy
 from lumibot.traders import Trader #Deployment capability
 from datetime import datetime
+import json
 
-API_KEY = ''
-API_SECRET= ''
-BASE_URL = ''
+with open('CREDS.json') as creds:
+    info = json.load(creds)
+    API_KEY = info['API_KEY']
+    API_SECRET= info['API_SECRET']
+    BASE_URL = info['BASE_URL']
+
 
 ALPACA_CREDENTIALS = {
     "API_KEY" : API_KEY,
