@@ -8,7 +8,7 @@ from timedelta import Timedelta
 from finbert_utils import estimate_sentiment
 import json
 
-with open("CREDS.json") as f:
+with open("PATH TO CREDS.json") as f:
     data = json.load(f)
     API_KEY=data['API_KEY']
     API_SECRET=data['API_SECRET']
