@@ -1,4 +1,4 @@
-This is a trading bot that does paper trading using Alpaca.
+This is a machine-learning trading bot that does paper trading using Alpaca.
 
 A personal Alpaca account is required to test it. 
 
