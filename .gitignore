@@ -1,2 +1,4 @@
-/CREDS.json
 /logs/
+/__pycache__
+.DS_Store
+CREDS.json

@@ -1,90 +1,101 @@
-from lumibot.brokers import Alpaca #Broker
-from lumibot.backtesting import YahooDataBacktesting #Framework for trading
-from lumibot.strategies.strategy import Strategy #Strategy
-from lumibot.traders import Trader #Deployment capability
-from datetime import datetime
+from lumibot.brokers import Alpaca
+from lumibot.backtesting import YahooDataBacktesting
+from lumibot.strategies.strategy import Strategy
+from lumibot.traders import Trader
+from datetime import datetime 
+from alpaca_trade_api import REST 
+from timedelta import Timedelta 
+from finbert_utils import estimate_sentiment
 import json
-from alpaca_trade_api import REST
-from timedelta import Timedelta
 
-with open('CREDS.json') as creds:
-    info = json.load(creds)
-    API_KEY = info['API_KEY']
-    API_SECRET= info['API_SECRET']
-    BASE_URL = info['BASE_URL']
+with open("CREDS.json") as f:
+    data = json.load(f)
+    API_KEY=data['API_KEY']
+    API_SECRET=data['API_SECRET']
+    BASE_URL=data['BASE_URL']
 
-
-ALPACA_CREDENTIALS = {
-    "API_KEY" : API_KEY,
-    "API_SECRET" : API_SECRET,
-    "PAPER_TRADE" : True
+ALPACA_CREDS = {
+    "API_KEY":API_KEY, 
+    "API_SECRET": API_SECRET, 
+    "PAPER": True
 }
 
-start_date = datetime(2023,12,15)
-end_date = datetime(2023,12,31)
+risk_level = .5
 
-class MLTrader(Strategy):
-    def initialize(self, symbol:str="SPY", cash_at_risk:float= 0.5):
+class MLTrader(Strategy): 
+    def initialize(self, symbol:str="SPY", cash_at_risk:float=risk_level): 
         self.symbol = symbol
-        self.sleeptime = "24H"
-        self.last_trade = None
+        self.sleeptime = "24H" 
+        self.last_trade = None 
         self.cash_at_risk = cash_at_risk
-        self.api=REST(base_url=BASE_URL, key_id=API_KEY, secret_key= API_SECRET)
-        
-    def position_sizing(self):
-        cash = self.get_cash()
+        self.api = REST(base_url=BASE_URL, key_id=API_KEY, secret_key=API_SECRET)
+
+    def position_sizing(self): 
+        cash = self.get_cash() 
         last_price = self.get_last_price(self.symbol)
-        
-        # This formula guides how mcuh of our chas balance we user per trade.
-        # cash_at_risk of 0.5 means that for each trade we're using 50% of our remaining cash balance.
-        quantity = round(cash * self.cash_at_risk / last_price)
+        quantity = round(cash * self.cash_at_risk / last_price,0)
         return cash, last_price, quantity
 
-    def get_dates(self):
-        today = self.get_datetime() # return todays date based on the back test
+    def get_dates(self): 
+        today = self.get_datetime()
         three_days_prior = today - Timedelta(days=3)
         return today.strftime('%Y-%m-%d'), three_days_prior.strftime('%Y-%m-%d')
-        
-    def get_news(self):
-        today,three_days_prior = self.get_dates()
-        news = self.api.get_news(symbol=self.symbol,
-                                 start= three_days_prior,
-                                 end=today)
-        
-        news = [event.__dict__["_raw"]["headline"]for event in news]
-        return news
-    
+
+    def get_sentiment(self): 
+        today, three_days_prior = self.get_dates()
+        news = self.api.get_news(symbol=self.symbol, 
+                                 start=three_days_prior, 
+                                 end=today) 
+        news = [ev.__dict__["_raw"]["headline"] for ev in news]
+        probability, sentiment = estimate_sentiment(news)
+        return probability, sentiment 
+
     def on_trading_iteration(self):
-        cash, last_price, quantity = self.position_sizing()
-        
-        if cash > last_price:
-            if self.last_trade == None:
-                news = self.get_news()
-                print(news)
+        cash, last_price, quantity = self.position_sizing() 
+        probability, sentiment = self.get_sentiment()
+        if cash > last_price: 
+            if sentiment == "positive" and probability > .999: 
+                if self.last_trade == "sell": 
+                    self.sell_all() 
                 order = self.create_order(
-                    self.symbol,
-                    quantity,
-                    "buy",
-                    type="bracket",
-                    take_profit_price= last_price * 1.20, # 20% profit
-                    stop_loss_limit_price= last_price * 0.95
+                    self.symbol, 
+                    quantity, 
+                    "buy", 
+                    type="bracket", 
+                    take_profit_price=last_price*1.20, 
+                    stop_loss_price=last_price*.95
                 )
-                self.submit_order(order)
-                self.last_trade="buy"
+                self.submit_order(order) 
+                self.last_trade = "buy"
+            elif sentiment == "negative" and probability > .999: 
+                if self.last_trade == "buy": 
+                    self.sell_all() 
+                order = self.create_order(
+                    self.symbol, 
+                    quantity, 
+                    "sell", 
+                    type="bracket", 
+                    take_profit_price=last_price*.8, 
+                    stop_loss_price=last_price*1.05
+                )
+                self.submit_order(order) 
+                self.last_trade = "sell"
 
-risk_level = 0.5 # higher number means more cash per trade
+start_date = datetime(2020,1,1)
+end_date = datetime(2023,12,31)
+ 
+broker = Alpaca(ALPACA_CREDS) 
+strategy = MLTrader(name='mlstrat', broker=broker, 
+                    parameters={"symbol":"SPY", 
+                                "cash_at_risk":risk_level})
+strategy.backtest(
+    YahooDataBacktesting, 
+    start_date, 
+    end_date, 
+    parameters={"symbol":"SPY", "cash_at_risk":risk_level}
+)
 
-broker = Alpaca(ALPACA_CREDENTIALS)
-strategy = MLTrader( name="mlstrat",
-                    broker = broker,
-                    parameters = {
-                        "symbol": "SPY",
-                        "cash_at_risk" : risk_level})
-
-strategy.backtest( YahooDataBacktesting,
-                  start_date,
-                  end_date,
-                  parameters={
-                      "symbol": "SPY",
-                      "cash_at_risk" : risk_level
-                      })
+# For live trading
+# trader = Trader()
+# trader.add_strategy(strategy)
+# trader.run_all()
